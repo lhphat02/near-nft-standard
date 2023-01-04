@@ -100,8 +100,8 @@ class NFTContract {
     this.base_uri = "";
     this.reference = "";
     this.reference_hash = "";
-    this.owner_by_id = new LookupMap("owner");
-    this.token_by_id = new LookupMap("token");
+    this.owner_by_id = new LookupMap("");
+    this.token_by_id = new LookupMap("");
   }
 
   @initialize({})
@@ -115,21 +115,29 @@ class NFTContract {
     this.base_uri = "";
     this.reference = ""
     this.reference_hash = "";
-    this.owner_by_id = new LookupMap(prefix);
+    this.owner_by_id = new LookupMap("owner");
     this.token_by_id = new LookupMap("token");
   }
 
   @call({}) // token_id = 0
-  mint_nft({ token_owner_id, name, description, media_uri, level }) {
-    this.owner_by_id.set(this.token_id.toString(), token_owner_id); //{tokenId = 0, 'dangquangvurust.testnet'}
+  mint_nft({ 
+    token_owner_id,
+    title, 
+    description, 
+    media,
+    media_hash,
+
+
+  }) {
+    this.owner_by_id.set(this.token_id.toString(), token_owner_id); 
+    //{tokenId = 0, 'dangquangvurust.testnet'}
 
     let token = new Token(
       this.token_id,
       token_owner_id,
-      name,
+      title,
       description,
       media_uri,
-      level
     );
 
     this.token_by_id.set(this.token_id.toString(), token);
