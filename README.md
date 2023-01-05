@@ -1,5 +1,5 @@
 
-# Near NFT Metadata's Standard
+# Near NFT's Standard
 
 VBI JS SmartContract Course's homework
 
