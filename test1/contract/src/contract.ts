@@ -216,16 +216,24 @@ export class NFTContract {
     return this.token_id;
   }
 
+  //Get total count of existing tokens of an account
+  @view({})
+  get_owner_total_supply() {
+    return this.token_id;
+  }
+
   //Get all existing tokens
   @view({})
-  get_all_tokens({ from, max }: { from?: number; max?: number }) {
+  get_all_tokens({ from, max }: { from?: number; max?: number }): JsonToken[] {
     var all_tokens = [];
 
     let start = from ? from : 0;
     let limit = max ? max : this.token_id;
+    let keys = this.tokenMetadataById.toArray();
 
-    for (let i = start; i < limit; i++) {
-      all_tokens.push(this.token_by_id.get(i.toString()));
+    for (let i = start; i < keys.length && i < start + limit; i++) {
+      let jsonToken = this.get_nft_detail({ fetchTokenId: keys[i][0] });
+      all_tokens.push(jsonToken);
     }
 
     return all_tokens;
@@ -233,14 +241,14 @@ export class NFTContract {
 
   //Get all owned tokens of a specific account
   @view({})
-  get_account_tokens({ account, max }: { account: AccountId; max?: number }) {
+  get_account_tokens({ account }: { account: AccountId }): JsonToken[] {
     var account_tokens = [];
+    let keys = this.tokenMetadataById.toArray();
 
-    let limit = max ? max : this.token_id;
-
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < this.token_id; i++) {
       if (this.token_by_id.get(i.toString()).owner_id === account) {
-        account_tokens.push(this.token_by_id.get(i.toString()));
+        let jsonToken = this.get_nft_detail({ fetchTokenId: keys[i][0] });
+        account_tokens.push(jsonToken);
       }
     }
 
