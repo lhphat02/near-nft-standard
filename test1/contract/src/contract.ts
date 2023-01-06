@@ -143,7 +143,7 @@ class JsonToken {
 export class NFTContract {
   owner_id: AccountId;
   token_id: number;
-  tokens_per_owner: LookupMap<any>;
+  tokens_per_owner: LookupMap<string>; //Not in used yet
   token_by_id: LookupMap<Token>;
   tokenMetadataById: UnorderedMap<TokenMetadata>;
   metadata: ContractMetadata;
@@ -191,12 +191,16 @@ export class NFTContract {
   }) {
     this.tokens_per_owner.set(this.token_id.toString(), token_owner_id);
 
+    //Create new token struct for NFT
     let token = new Token(this.token_id, token_owner_id);
 
+    //Map token with token id
     this.token_by_id.set(this.token_id.toString(), token);
 
+    //Map token metadata with token id
     this.tokenMetadataById.set(this.token_id.toString(), metadata);
 
+    //Fetch token id
     this.token_id++;
   }
 
@@ -213,14 +217,18 @@ export class NFTContract {
     approval_id: number;
     memo: string;
   }) {
+    //Caller of the method must attach a deposit of 1 yoctoⓃ for security purposes
     assert(
       near.attachedDeposit().toString() === '1',
-      'Requires deposit of 1 yoctoⓃ for security purposes'
+      'Requires attach an exactly deposit of 1 yoctoⓃ'
     );
 
+    //Get function caller
     let msgSender: AccountId = near.predecessorAccountId.toString();
 
     let token = this.token_by_id.get(token_id.toString()) as Token;
+
+    //Panic if token does not exist
     if (token == null) {
       near.panicUtf8('Token not found !');
     }
@@ -262,6 +270,7 @@ export class NFTContract {
   get_owner_total_supply({ account }: { account: AccountId }): number {
     let tokenCount: number = 0;
 
+    //Loop through all tokens existing in contract to search account's owned tokens
     for (let i = 0; i < this.token_id; i++) {
       if (this.token_by_id.get(i.toString()).owner_id === account) {
         tokenCount++;
@@ -276,6 +285,7 @@ export class NFTContract {
   get_all_tokens({ from, max }: { from?: number; max?: number }): JsonToken[] {
     var all_tokens = [];
 
+    //Paginate tokens
     let start = from ? from : 0;
     let limit = max ? max : this.token_id;
     let keys = this.tokenMetadataById.toArray();
@@ -292,6 +302,7 @@ export class NFTContract {
   @view({})
   get_account_tokens({ account }: { account: AccountId }): JsonToken[] {
     var account_tokens = [];
+
     let keys = this.tokenMetadataById.toArray();
 
     for (let i = 0; i < this.token_id; i++) {
@@ -308,7 +319,9 @@ export class NFTContract {
   @view({})
   get_nft_detail({ fetchTokenId }: { fetchTokenId: string }) {
     let token = this.token_by_id.get(fetchTokenId) as Token;
+
     assert(token == null, 'Fetched token does not exist !');
+
     let metadata = this.tokenMetadataById.get(fetchTokenId) as TokenMetadata;
 
     let jsonToken = new JsonToken({
