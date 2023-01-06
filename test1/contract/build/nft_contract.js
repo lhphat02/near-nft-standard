@@ -33,6 +33,22 @@ var TypeBrand;
   TypeBrand["BIGINT"] = "bigint";
   TypeBrand["DATE"] = "date";
 })(TypeBrand || (TypeBrand = {}));
+const ERR_INCONSISTENT_STATE = "The collection is an inconsistent state. Did previous smart contract execution terminate unexpectedly?";
+const ERR_INDEX_OUT_OF_BOUNDS = "Index out of bounds";
+function u8ArrayToBytes(array) {
+  return array.reduce((result, value) => `${result}${String.fromCharCode(value)}`, "");
+}
+/**
+ * Asserts that the expression passed to the function is truthy, otherwise throws a new Error with the provided message.
+ *
+ * @param expression - The expression to be asserted.
+ * @param message - The error message to be printed.
+ */
+function assert(expression, message) {
+  if (!expression) {
+    throw new Error("assertion failed: " + message);
+  }
+}
 function getValueWithOptions(value, options = {
   deserializer: deserialize
 }) {
@@ -427,6 +443,23 @@ var DataLength;
 const U64_MAX = 2n ** 64n - 1n;
 const EVICTED_REGISTER = U64_MAX - 1n;
 /**
+ * Logs parameters in the NEAR WASM virtual machine.
+ *
+ * @param params - Parameters to log.
+ */
+function log(...params) {
+  env.log(params.reduce((accumulated, parameter, index) => {
+    // Stringify undefined
+    const param = parameter === undefined ? "undefined" : parameter;
+    // Convert Objects to strings and convert to string
+    const stringified = typeof param === "object" ? JSON.stringify(param) : `${param}`;
+    if (index === 0) {
+      return stringified;
+    }
+    return `${accumulated} ${stringified}`;
+  }, ""));
+}
+/**
  * Returns the account ID of the account that called the function.
  * Can only be called in a call or initialize function.
  */
@@ -497,6 +530,10 @@ function storageRemove(key) {
 function input() {
   env.input(0);
   return env.read_register(0);
+}
+// NOTE: "env.panic(msg)" is not exported, use "throw Error(msg)" instead
+function panicUtf8(msg) {
+  env.panic_utf8(msg);
 }
 
 /**
@@ -674,130 +711,676 @@ class LookupMap {
   }
 }
 
-var _dec, _dec2, _dec3, _dec4, _dec5, _dec6, _class, _class2;
-class Token {
-  constructor(token_id, owner_id, name, description, media_uri, level) {
-    this.token_id = token_id, this.owner_id = owner_id, this.name = name, this.description = description, this.media_uri = media_uri, this.level = level;
+function indexToKey(prefix, index) {
+  const data = new Uint32Array([index]);
+  const array = new Uint8Array(data.buffer);
+  const key = u8ArrayToBytes(array);
+  return prefix + key;
+}
+/**
+ * An iterable implementation of vector that stores its content on the trie.
+ * Uses the following map: index -> element
+ */
+class Vector {
+  /**
+   * @param prefix - The byte prefix to use when storing elements inside this collection.
+   * @param length - The initial length of the collection. By default 0.
+   */
+  constructor(prefix, length = 0) {
+    this.prefix = prefix;
+    this.length = length;
+  }
+  /**
+   * Checks whether the collection is empty.
+   */
+  isEmpty() {
+    return this.length === 0;
+  }
+  /**
+   * Get the data stored at the provided index.
+   *
+   * @param index - The index at which to look for the data.
+   * @param options - Options for retrieving the data.
+   */
+  get(index, options) {
+    if (index >= this.length) {
+      return options?.defaultValue ?? null;
+    }
+    const storageKey = indexToKey(this.prefix, index);
+    const value = storageRead(storageKey);
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Removes an element from the vector and returns it in serialized form.
+   * The removed element is replaced by the last element of the vector.
+   * Does not preserve ordering, but is `O(1)`.
+   *
+   * @param index - The index at which to remove the element.
+   * @param options - Options for retrieving and storing the data.
+   */
+  swapRemove(index, options) {
+    assert(index < this.length, ERR_INDEX_OUT_OF_BOUNDS);
+    if (index + 1 === this.length) {
+      return this.pop(options);
+    }
+    const key = indexToKey(this.prefix, index);
+    const last = this.pop(options);
+    assert(storageWrite(key, serializeValueWithOptions(last, options)), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvicted();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Adds data to the collection.
+   *
+   * @param element - The data to store.
+   * @param options - Options for storing the data.
+   */
+  push(element, options) {
+    const key = indexToKey(this.prefix, this.length);
+    this.length += 1;
+    storageWrite(key, serializeValueWithOptions(element, options));
+  }
+  /**
+   * Removes and retrieves the element with the highest index.
+   *
+   * @param options - Options for retrieving the data.
+   */
+  pop(options) {
+    if (this.isEmpty()) {
+      return options?.defaultValue ?? null;
+    }
+    const lastIndex = this.length - 1;
+    const lastKey = indexToKey(this.prefix, lastIndex);
+    this.length -= 1;
+    assert(storageRemove(lastKey), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvicted();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Replaces the data stored at the provided index with the provided data and returns the previously stored data.
+   *
+   * @param index - The index at which to replace the data.
+   * @param element - The data to replace with.
+   * @param options - Options for retrieving and storing the data.
+   */
+  replace(index, element, options) {
+    assert(index < this.length, ERR_INDEX_OUT_OF_BOUNDS);
+    const key = indexToKey(this.prefix, index);
+    assert(storageWrite(key, serializeValueWithOptions(element, options)), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvicted();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Extends the current collection with the passed in array of elements.
+   *
+   * @param elements - The elements to extend the collection with.
+   */
+  extend(elements) {
+    for (const element of elements) {
+      this.push(element);
+    }
+  }
+  [Symbol.iterator]() {
+    return new VectorIterator(this);
+  }
+  /**
+   * Create a iterator on top of the default collection iterator using custom options.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  createIteratorWithOptions(options) {
+    return {
+      [Symbol.iterator]: () => new VectorIterator(this, options)
+    };
+  }
+  /**
+   * Return a JavaScript array of the data stored within the collection.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  toArray(options) {
+    const array = [];
+    const iterator = options ? this.createIteratorWithOptions(options) : this;
+    for (const value of iterator) {
+      array.push(value);
+    }
+    return array;
+  }
+  /**
+   * Remove all of the elements stored within the collection.
+   */
+  clear() {
+    for (let index = 0; index < this.length; index++) {
+      const key = indexToKey(this.prefix, index);
+      storageRemove(key);
+    }
+    this.length = 0;
+  }
+  /**
+   * Serialize the collection.
+   *
+   * @param options - Options for storing the data.
+   */
+  serialize(options) {
+    return serializeValueWithOptions(this, options);
+  }
+  /**
+   * Converts the deserialized data from storage to a JavaScript instance of the collection.
+   *
+   * @param data - The deserialized data to create an instance from.
+   */
+  static reconstruct(data) {
+    const vector = new Vector(data.prefix, data.length);
+    return vector;
   }
 }
-let Contract = (_dec = NearBindgen({}), _dec2 = initialize(), _dec3 = call({}), _dec4 = view(), _dec5 = view(), _dec6 = view(), _dec(_class = (_class2 = class Contract {
+/**
+ * An iterator for the Vector collection.
+ */
+class VectorIterator {
+  /**
+   * @param vector - The vector collection to create an iterator for.
+   * @param options - Options for retrieving and storing data.
+   */
+  constructor(vector, options) {
+    this.vector = vector;
+    this.options = options;
+    this.current = 0;
+  }
+  next() {
+    if (this.current >= this.vector.length) {
+      return {
+        value: null,
+        done: true
+      };
+    }
+    const value = this.vector.get(this.current, this.options);
+    this.current += 1;
+    return {
+      value,
+      done: false
+    };
+  }
+}
+
+/**
+ * An unordered map that stores data in NEAR storage.
+ */
+class UnorderedMap {
+  /**
+   * @param prefix - The byte prefix to use when storing elements inside this collection.
+   */
+  constructor(prefix) {
+    this.prefix = prefix;
+    this.keys = new Vector(`${prefix}u`); // intentional different prefix with old UnorderedMap
+    this.values = new LookupMap(`${prefix}m`);
+  }
+  /**
+   * The number of elements stored in the collection.
+   */
+  get length() {
+    return this.keys.length;
+  }
+  /**
+   * Checks whether the collection is empty.
+   */
+  isEmpty() {
+    return this.keys.isEmpty();
+  }
+  /**
+   * Get the data stored at the provided key.
+   *
+   * @param key - The key at which to look for the data.
+   * @param options - Options for retrieving the data.
+   */
+  get(key, options) {
+    const valueAndIndex = this.values.get(key);
+    if (valueAndIndex === null) {
+      return options?.defaultValue ?? null;
+    }
+    const [value] = valueAndIndex;
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Store a new value at the provided key.
+   *
+   * @param key - The key at which to store in the collection.
+   * @param value - The value to store in the collection.
+   * @param options - Options for retrieving and storing the data.
+   */
+  set(key, value, options) {
+    const valueAndIndex = this.values.get(key);
+    const serialized = serializeValueWithOptions(value, options);
+    if (valueAndIndex === null) {
+      const newElementIndex = this.length;
+      this.keys.push(key);
+      this.values.set(key, [serialized, newElementIndex]);
+      return null;
+    }
+    const [oldValue, oldIndex] = valueAndIndex;
+    this.values.set(key, [serialized, oldIndex]);
+    return getValueWithOptions(oldValue, options);
+  }
+  /**
+   * Removes and retrieves the element with the provided key.
+   *
+   * @param key - The key at which to remove data.
+   * @param options - Options for retrieving the data.
+   */
+  remove(key, options) {
+    const oldValueAndIndex = this.values.remove(key);
+    if (oldValueAndIndex === null) {
+      return options?.defaultValue ?? null;
+    }
+    const [value, index] = oldValueAndIndex;
+    assert(this.keys.swapRemove(index) !== null, ERR_INCONSISTENT_STATE);
+    // the last key is swapped to key[index], the corresponding [value, index] need update
+    if (!this.keys.isEmpty() && index !== this.keys.length) {
+      // if there is still elements and it was not the last element
+      const swappedKey = this.keys.get(index);
+      const swappedValueAndIndex = this.values.get(swappedKey);
+      assert(swappedValueAndIndex !== null, ERR_INCONSISTENT_STATE);
+      this.values.set(swappedKey, [swappedValueAndIndex[0], index]);
+    }
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Remove all of the elements stored within the collection.
+   */
+  clear() {
+    for (const key of this.keys) {
+      // Set instead of remove to avoid loading the value from storage.
+      this.values.set(key, null);
+    }
+    this.keys.clear();
+  }
+  [Symbol.iterator]() {
+    return new UnorderedMapIterator(this);
+  }
+  /**
+   * Create a iterator on top of the default collection iterator using custom options.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  createIteratorWithOptions(options) {
+    return {
+      [Symbol.iterator]: () => new UnorderedMapIterator(this, options)
+    };
+  }
+  /**
+   * Return a JavaScript array of the data stored within the collection.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  toArray(options) {
+    const array = [];
+    const iterator = options ? this.createIteratorWithOptions(options) : this;
+    for (const value of iterator) {
+      array.push(value);
+    }
+    return array;
+  }
+  /**
+   * Extends the current collection with the passed in array of key-value pairs.
+   *
+   * @param keyValuePairs - The key-value pairs to extend the collection with.
+   */
+  extend(keyValuePairs) {
+    for (const [key, value] of keyValuePairs) {
+      this.set(key, value);
+    }
+  }
+  /**
+   * Serialize the collection.
+   *
+   * @param options - Options for storing the data.
+   */
+  serialize(options) {
+    return serializeValueWithOptions(this, options);
+  }
+  /**
+   * Converts the deserialized data from storage to a JavaScript instance of the collection.
+   *
+   * @param data - The deserialized data to create an instance from.
+   */
+  static reconstruct(data) {
+    const map = new UnorderedMap(data.prefix);
+    // reconstruct keys Vector
+    map.keys = new Vector(`${data.prefix}u`);
+    map.keys.length = data.keys.length;
+    // reconstruct values LookupMap
+    map.values = new LookupMap(`${data.prefix}m`);
+    return map;
+  }
+}
+/**
+ * An iterator for the UnorderedMap collection.
+ */
+class UnorderedMapIterator {
+  /**
+   * @param unorderedMap - The unordered map collection to create an iterator for.
+   * @param options - Options for retrieving and storing data.
+   */
+  constructor(unorderedMap, options) {
+    this.options = options;
+    this.keys = new VectorIterator(unorderedMap.keys);
+    this.map = unorderedMap.values;
+  }
+  next() {
+    const key = this.keys.next();
+    if (key.done) {
+      return {
+        value: [key.value, null],
+        done: key.done
+      };
+    }
+    const valueAndIndex = this.map.get(key.value);
+    assert(valueAndIndex !== null, ERR_INCONSISTENT_STATE);
+    return {
+      done: key.done,
+      value: [key.value, getValueWithOptions(valueAndIndex[0], this.options)]
+    };
+  }
+}
+
+var _dec, _dec2, _dec3, _dec4, _dec5, _dec6, _dec7, _dec8, _dec9, _dec10, _class, _class2;
+
+// Token's structure
+class Token {
+  constructor(token_id, owner_id) {
+    this.token_id = token_id, this.owner_id = owner_id;
+  }
+}
+
+//Token's information on view method
+class JsonToken {
+  constructor({
+    tokenId,
+    ownerId,
+    metadata
+  }) {
+    //token ID
+    this.token_id = tokenId,
+    //owner of the token
+    this.owner_id = ownerId,
+    //token metadata
+    this.metadata = metadata;
+  }
+}
+
+////////////////  MAIN CONTRACT  ////////////////
+let NFTContract = (_dec = NearBindgen({
+  requireInit: true
+}), _dec2 = initialize(), _dec3 = call({}), _dec4 = call({}), _dec5 = view(), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec9 = view(), _dec10 = view(), _dec(_class = (_class2 = class NFTContract {
   constructor() {
     this.token_id = 0;
-    this.owner_id = "";
-    this.owner_by_id = new LookupMap("o");
-    this.token_by_id = new LookupMap("t");
+    this.owner_id = '';
+    this.tokens_per_owner = new LookupMap('');
+    this.token_by_id = new LookupMap('');
+    this.tokenMetadataById = new UnorderedMap('');
+    this.metadata = {
+      name: '',
+      spec: '',
+      symbol: ''
+    };
   }
+
+  //Initialize values
   init({
     owner_id,
-    prefix
+    //temporary metadata
+    metadata = {
+      spec: 'nft-1.0.0',
+      name: 'Phat Luu NFT Contract',
+      symbol: 'VBI'
+    }
   }) {
     this.token_id = 0;
     this.owner_id = owner_id;
-    this.owner_by_id = new LookupMap(prefix);
-    this.token_by_id = new LookupMap("t");
+    this.tokens_per_owner = new LookupMap('tokensPerOwner');
+    this.token_by_id = new LookupMap('tokenById');
+    this.tokenMetadataById = new UnorderedMap('tokenMetadataById');
+    this.metadata = metadata;
   }
-  // token_id = 0
-  mint_nft({
-    token_owner_id,
-    name,
-    description,
-    media_uri,
-    level
-  }) {
-    this.owner_by_id.set(this.token_id.toString(), token_owner_id); //{tokenId = 0, 'dangquangvurust.testnet'}
 
-    let token = new Token(this.token_id, token_owner_id, name, description, media_uri, level);
-    this.token_by_id.set(this.token_id.toString(), token);
-    this.token_id++;
-    return token;
-  }
-  get_token_by_id({
-    token_id
+  //Mint NFT
+  nft_mint({
+    token_owner_id,
+    metadata
   }) {
+    this.tokens_per_owner.set(this.token_id.toString(), token_owner_id);
+    let token = new Token(this.token_id, token_owner_id);
+    this.token_by_id.set(this.token_id.toString(), token);
+    this.tokenMetadataById.set(this.token_id.toString(), metadata);
+    this.token_id++;
+  }
+
+  //Transfer NFT
+  nft_transfer({
+    receiver_id,
+    token_id,
+    approval_id,
+    memo
+  }) {
+    assert(attachedDeposit().toString() === '1', 'Requires deposit of 1 yoctoⓃ for security purposes');
+    let msgSender = predecessorAccountId.toString();
     let token = this.token_by_id.get(token_id.toString());
-    if (token === null) {
-      return null;
+    if (token == null) {
+      panicUtf8('Token not found !');
+    }
+
+    //Make sure if the sender doesn't equal the owner
+    assert(token.owner_id === msgSender, 'Token should be owned by the sender');
+
+    //Make sure that the sender isn't sending the token to themselves
+    assert(token.owner_id != receiver_id, 'The token owner and the receiver should be different');
+
+    //Transfer ownership
+    this.token_by_id.get(token_id.toString()).owner_id = receiver_id;
+
+    //Create a new token struct
+    let newToken = new Token(token_id, receiver_id);
+
+    //Insert new token into the token_by_id, replacing the old entry
+    this.token_by_id.set(token_id.toString(), newToken);
+
+    //Log memo
+    if (memo != null) {
+      log(`Memo: ${memo}`);
     }
     return token;
   }
-  get_supply_tokens() {
+
+  //Get total count of existing tokens
+  get_total_supply() {
     return this.token_id;
   }
+
+  //Get total count of existing tokens of an account
+  get_owner_total_supply({
+    account
+  }) {
+    let tokenCount = 0;
+    for (let i = 0; i < this.token_id; i++) {
+      if (this.token_by_id.get(i.toString()).owner_id === account) {
+        tokenCount++;
+      }
+    }
+    return tokenCount;
+  }
+
+  //Get all existing tokens
   get_all_tokens({
-    start,
+    from,
     max
   }) {
     var all_tokens = [];
-    for (var i = 0; i < this.token_id; i++) {
-      all_tokens.push(this.token_by_id.get(i.toString()));
+    let start = from ? from : 0;
+    let limit = max ? max : this.token_id;
+    let keys = this.tokenMetadataById.toArray();
+    for (let i = start; i < keys.length && i < start + limit; i++) {
+      let jsonToken = this.get_nft_detail({
+        fetchTokenId: keys[i][0]
+      });
+      all_tokens.push(jsonToken);
     }
     return all_tokens;
   }
-}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "mint_nft", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "mint_nft"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_token_by_id", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "get_token_by_id"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_supply_tokens", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "get_supply_tokens"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_all_tokens", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "get_all_tokens"), _class2.prototype)), _class2)) || _class);
+
+  //Get all owned tokens of a specific account
+  get_account_tokens({
+    account
+  }) {
+    var account_tokens = [];
+    let keys = this.tokenMetadataById.toArray();
+    for (let i = 0; i < this.token_id; i++) {
+      if (this.token_by_id.get(i.toString()).owner_id === account) {
+        let jsonToken = this.get_nft_detail({
+          fetchTokenId: keys[i][0]
+        });
+        account_tokens.push(jsonToken);
+      }
+    }
+    return account_tokens;
+  }
+
+  //Get a token's detail via token Id
+  get_nft_detail({
+    fetchTokenId
+  }) {
+    let token = this.token_by_id.get(fetchTokenId);
+    assert(token == null, 'Fetched token does not exist !');
+    let metadata = this.tokenMetadataById.get(fetchTokenId);
+    let jsonToken = new JsonToken({
+      tokenId: fetchTokenId,
+      ownerId: token.owner_id,
+      metadata: metadata
+    });
+    return jsonToken;
+  }
+
+  //Get NFT contract's metadata
+  get_contract_metadata() {
+    return this.metadata;
+  }
+}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "nft_mint", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "nft_mint"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "nft_transfer", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "nft_transfer"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_total_supply", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "get_total_supply"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_owner_total_supply", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "get_owner_total_supply"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_all_tokens", [_dec7], Object.getOwnPropertyDescriptor(_class2.prototype, "get_all_tokens"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_account_tokens", [_dec8], Object.getOwnPropertyDescriptor(_class2.prototype, "get_account_tokens"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_nft_detail", [_dec9], Object.getOwnPropertyDescriptor(_class2.prototype, "get_nft_detail"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_contract_metadata", [_dec10], Object.getOwnPropertyDescriptor(_class2.prototype, "get_contract_metadata"), _class2.prototype)), _class2)) || _class);
+function get_contract_metadata() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
+    throw new Error("Contract must be initialized");
+  }
+  const _contract = NFTContract._create();
+  if (_state) {
+    NFTContract._reconstruct(_contract, _state);
+  }
+  const _args = NFTContract._getArgs();
+  const _result = _contract.get_contract_metadata(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
+}
+function get_nft_detail() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
+    throw new Error("Contract must be initialized");
+  }
+  const _contract = NFTContract._create();
+  if (_state) {
+    NFTContract._reconstruct(_contract, _state);
+  }
+  const _args = NFTContract._getArgs();
+  const _result = _contract.get_nft_detail(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
+}
+function get_account_tokens() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
+    throw new Error("Contract must be initialized");
+  }
+  const _contract = NFTContract._create();
+  if (_state) {
+    NFTContract._reconstruct(_contract, _state);
+  }
+  const _args = NFTContract._getArgs();
+  const _result = _contract.get_account_tokens(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
+}
 function get_all_tokens() {
-  const _state = Contract._getState();
-  if (!_state && Contract._requireInit()) {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = Contract._create();
+  const _contract = NFTContract._create();
   if (_state) {
-    Contract._reconstruct(_contract, _state);
+    NFTContract._reconstruct(_contract, _state);
   }
-  const _args = Contract._getArgs();
+  const _args = NFTContract._getArgs();
   const _result = _contract.get_all_tokens(_args);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(Contract._serialize(_result, true));
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
 }
-function get_supply_tokens() {
-  const _state = Contract._getState();
-  if (!_state && Contract._requireInit()) {
+function get_owner_total_supply() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = Contract._create();
+  const _contract = NFTContract._create();
   if (_state) {
-    Contract._reconstruct(_contract, _state);
+    NFTContract._reconstruct(_contract, _state);
   }
-  const _args = Contract._getArgs();
-  const _result = _contract.get_supply_tokens(_args);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(Contract._serialize(_result, true));
+  const _args = NFTContract._getArgs();
+  const _result = _contract.get_owner_total_supply(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
 }
-function get_token_by_id() {
-  const _state = Contract._getState();
-  if (!_state && Contract._requireInit()) {
+function get_total_supply() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = Contract._create();
+  const _contract = NFTContract._create();
   if (_state) {
-    Contract._reconstruct(_contract, _state);
+    NFTContract._reconstruct(_contract, _state);
   }
-  const _args = Contract._getArgs();
-  const _result = _contract.get_token_by_id(_args);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(Contract._serialize(_result, true));
+  const _args = NFTContract._getArgs();
+  const _result = _contract.get_total_supply(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
 }
-function mint_nft() {
-  const _state = Contract._getState();
-  if (!_state && Contract._requireInit()) {
+function nft_transfer() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = Contract._create();
+  const _contract = NFTContract._create();
   if (_state) {
-    Contract._reconstruct(_contract, _state);
+    NFTContract._reconstruct(_contract, _state);
   }
-  const _args = Contract._getArgs();
-  const _result = _contract.mint_nft(_args);
-  Contract._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(Contract._serialize(_result, true));
+  const _args = NFTContract._getArgs();
+  const _result = _contract.nft_transfer(_args);
+  NFTContract._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
+}
+function nft_mint() {
+  const _state = NFTContract._getState();
+  if (!_state && NFTContract._requireInit()) {
+    throw new Error("Contract must be initialized");
+  }
+  const _contract = NFTContract._create();
+  if (_state) {
+    NFTContract._reconstruct(_contract, _state);
+  }
+  const _args = NFTContract._getArgs();
+  const _result = _contract.nft_mint(_args);
+  NFTContract._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
 }
 function init() {
-  const _state = Contract._getState();
+  const _state = NFTContract._getState();
   if (_state) {
     throw new Error("Contract already initialized");
   }
-  const _contract = Contract._create();
-  const _args = Contract._getArgs();
+  const _contract = NFTContract._create();
+  const _args = NFTContract._getArgs();
   const _result = _contract.init(_args);
-  Contract._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(Contract._serialize(_result, true));
+  NFTContract._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NFTContract._serialize(_result, true));
 }
 
-export { get_all_tokens, get_supply_tokens, get_token_by_id, init, mint_nft };
-//# sourceMappingURL=hello_near.js.map
+export { NFTContract, get_account_tokens, get_all_tokens, get_contract_metadata, get_nft_detail, get_owner_total_supply, get_total_supply, init, nft_mint, nft_transfer };
+//# sourceMappingURL=nft_contract.js.map
