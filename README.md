@@ -1,7 +1,7 @@
 
 # Near NFT's Standard
 
-VBI JS SmartContract Course's homework
+VBI JS SmartContract Course's assignment
 
 
 ## Instructor
