@@ -7,6 +7,7 @@ import {
   initialize,
   LookupMap,
   UnorderedMap,
+  UnorderedSet,
 } from 'near-sdk-js';
 import { AccountId } from 'near-sdk-js/lib/types';
 
@@ -142,7 +143,7 @@ class JsonToken {
 export class NFTContract {
   owner_id: AccountId;
   token_id: number;
-  owner_by_id: LookupMap<string>;
+  tokens_per_owner: LookupMap<any>;
   token_by_id: LookupMap<Token>;
   tokenMetadataById: UnorderedMap<TokenMetadata>;
   metadata: ContractMetadata;
@@ -150,7 +151,7 @@ export class NFTContract {
   constructor() {
     this.token_id = 0;
     this.owner_id = '';
-    this.owner_by_id = new LookupMap('');
+    this.tokens_per_owner = new LookupMap('');
     this.token_by_id = new LookupMap('');
     this.tokenMetadataById = new UnorderedMap('');
     this.metadata = { name: '', spec: '', symbol: '' };
@@ -173,7 +174,7 @@ export class NFTContract {
   }) {
     this.token_id = 0;
     this.owner_id = owner_id;
-    this.owner_by_id = new LookupMap('ownerById');
+    this.tokens_per_owner = new LookupMap('tokensPerOwner');
     this.token_by_id = new LookupMap('tokenById');
     this.tokenMetadataById = new UnorderedMap('tokenMetadataById');
     this.metadata = metadata;
@@ -188,7 +189,7 @@ export class NFTContract {
     token_owner_id: AccountId;
     metadata: TokenMetadata;
   }) {
-    this.owner_by_id.set(this.token_id.toString(), token_owner_id);
+    this.tokens_per_owner.set(this.token_id.toString(), token_owner_id);
 
     let token = new Token(this.token_id, token_owner_id);
 
@@ -217,10 +218,13 @@ export class NFTContract {
 
   //Get all existing tokens
   @view({})
-  get_all_tokens({ start, max }: { start?: number; max?: number }) {
+  get_all_tokens({ from, max }: { from?: number; max?: number }) {
     var all_tokens = [];
 
-    for (var i = 0; i < this.token_id; i++) {
+    let start = from ? from : 0;
+    let limit = max ? max : this.token_id;
+
+    for (let i = start; i < limit; i++) {
       all_tokens.push(this.token_by_id.get(i.toString()));
     }
 
@@ -229,22 +233,18 @@ export class NFTContract {
 
   //Get all owned tokens of a specific account
   @view({})
-  get_account_tokens({
-    account,
-    start,
-    max,
-  }: {
-    account: AccountId;
-    start?: number;
-    max?: number;
-  }) {
-    var all_tokens = [];
+  get_account_tokens({ account, max }: { account: AccountId; max?: number }) {
+    var account_tokens = [];
 
-    for (var i = 0; i < this.token_id; i++) {
-      all_tokens.push(this.token_by_id.get(i.toString()));
+    let limit = max ? max : this.token_id;
+
+    for (let i = 0; i < limit; i++) {
+      if (this.token_by_id.get(i.toString()).owner_id === account) {
+        account_tokens.push(this.token_by_id.get(i.toString()));
+      }
     }
 
-    return all_tokens;
+    return account_tokens;
   }
 
   //Get a token's detail via token Id
@@ -263,6 +263,7 @@ export class NFTContract {
     return jsonToken;
   }
 
+  //Get NFT contract's metadata
   @view({})
   get_contract_metadata(): ContractMetadata {
     return this.metadata;
