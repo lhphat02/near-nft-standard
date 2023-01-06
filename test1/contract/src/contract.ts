@@ -9,143 +9,202 @@ import {
 } from "near-sdk-js";
 import { AccountId } from "near-sdk-js/lib/types";
 
+// NFTContract's Metadata structure
+class ContractMetadata {
+  spec: string;
+  name: string;
+  symbol: string;
+  icon?: string;
+  base_uri?: string;
+  reference?: string;
+  reference_hash?: string;
+  
+  constructor(
+    {
+      spec, 
+      name, 
+      symbol, 
+      icon, 
+      baseUri, 
+      reference, 
+      referenceHash
+    }:{ 
+      spec: string, 
+      name: string, 
+      symbol: string, 
+      icon?: string, 
+      baseUri?: string, 
+      reference?: string, 
+      referenceHash?: string
+    }) {
+    this.spec = spec  // required, essentially a version like "nft-1.0.0"
+    this.name = name  // required, ex. "Mosaics"
+    this.symbol = symbol // required, ex. "MOSAIC"
+    this.icon = icon // Data URL
+    this.base_uri = baseUri // Centralized gateway known to have reliable access to decentralized storage assets referenced by `reference` or `media` URLs
+    this.reference = reference // URL to a JSON file with more info
+    this.reference_hash = referenceHash // Base64-encoded sha256 hash of JSON from reference field. Required if `reference` is included.
+  }
+
+}
+
+// Token's Metadata structure
+class TokenMetadata {
+  title?: string;
+  description?: string;
+  media?: string;
+  media_hash?: string;
+  copies?: number;
+  issued_at?: string;
+  expires_at?: string;
+  starts_at?: string;
+  updated_at?: string;
+  extra?: string;
+  reference?: string;
+  reference_hash?: string;
+  constructor(
+    {
+      title, 
+      description, 
+      media, 
+      mediaHash, 
+      copies, 
+      issuedAt, 
+      expiresAt, 
+      startsAt, 
+      updatedAt, 
+      extra, 
+      reference, 
+      referenceHash
+    }:{
+      title?: string, 
+      description?: string, 
+      media?: string, 
+      mediaHash?: string, 
+      copies?: number, 
+      issuedAt?: string, 
+      expiresAt?: string, 
+      startsAt?: string, 
+      updatedAt?: string, 
+      extra?: string, 
+      reference?: string, 
+      referenceHash?: string}
+    ) {
+    this.title = title // ex. "Arch Nemesis: Mail Carrier" or "Parcel #5055"
+    this.description = description // free-form description
+    this.media = media // URL to associated media, preferably to decentralized, content-addressed storage
+    this.media_hash = mediaHash // Base64-encoded sha256 hash of content referenced by the `media` field. Required if `media` is included.
+    this.copies = copies // number of copies of this set of metadata in existence when token was minted.
+    this.issued_at = issuedAt // ISO 8601 datetime when token was issued or minted
+    this.expires_at = expiresAt // ISO 8601 datetime when token expires
+    this.starts_at = startsAt // ISO 8601 datetime when token starts being valid
+    this.updated_at = updatedAt // ISO 8601 datetime when token was last updated
+    this.extra = extra // anything extra the NFT wants to store on-chain. Can be stringified JSON.
+    this.reference = reference // URL to an off-chain JSON file with more info.
+    this.reference_hash = referenceHash // Base64-encoded sha256 hash of JSON from reference field. Required if `reference` is included.
+  }
+}
+
+
+
 class Token {
   token_id: number;
   owner_id: AccountId;
-  title: string|null; 
-  // ex. "Arch Nemesis: Mail Carrier" or "Parcel #5055"
-  description: string|null; 
-  // free-form description
-  media: string|null; 
-  // URL to associated media, preferably to decentralized, content-addressed storage
-  media_hash: string|null; 
-  // Base64-encoded sha256 hash of content referenced by the `media` field. Required if `media` is included.
-  copies: number|null; 
-  // number of copies of this set of metadata in existence when token was minted.
-  issued_at: number|null; 
-  // When token was issued or minted, Unix epoch in milliseconds
-  expires_at: number|null; 
-  // When token expires, Unix epoch in milliseconds
-  starts_at: number|null; 
-  // When token starts being valid, Unix epoch in milliseconds
-  updated_at: number|null; 
-  // When token was last updated, Unix epoch in milliseconds
-  extra: string|null; 
-  // anything extra the NFT wants to store on-chain. Can be stringified JSON.
-  reference: string|null; 
-  // URL to an off-chain JSON file with more info.
-  reference_hash: string|null; 
-  // Base64-encoded sha256 hash of JSON from reference field. Required if `reference` is included.
 
   constructor(
     token_id: number,
     owner_id: AccountId,
-    title: string|null,
-    description: string|null,
-    media: string|null,
-    media_hash: string|null,
-    copies: number|null,
-    issued_at: number|null,
-    expires_at: number|null,
-    starts_at: number|null,
-    updated_at: number|null,
-    extra: string|null,
-    reference: string|null,
-    reference_hash: string|null
   ) {
       (this.token_id = token_id),
-      (this.owner_id = owner_id),
-      (this.title = title),
-      (this.description = description),
-      (this.media = media),
-      (this.media_hash = media_hash),
-      (this.copies =copies),
-      (this.issued_at =issued_at),
-      (this.expires_at =expires_at),
-      (this.starts_at =starts_at),
-      (this.updated_at=updated_at),
-      (this.extra=extra),
-      (this.reference= reference),
-      (this.reference_hash =reference_hash)
+      (this.owner_id = owner_id)
+  }
+}
+
+class JsonToken {
+  token_id: number;
+  owner_id: AccountId;
+  metadata: TokenMetadata;
+
+  constructor({ 
+      tokenId, 
+      ownerId, 
+      metadata, 
+  }:{
+      tokenId: number,
+      ownerId: AccountId,
+      metadata: TokenMetadata,
+  }) {
+      //token ID
+      this.token_id = tokenId,
+      //owner of the token
+      this.owner_id = ownerId,
+      //token metadata
+      this.metadata = metadata
   }
 }
 
 @NearBindgen({requireInit: true})
-class NFTContract {
-  spec: string;
-  // required, essentially a version like "nft-2.0.0", replacing "2.0.0" with the implemented version of NEP-177
-  name: string; 
-  // required, ex. "Mochi Rising — Digital Edition" or "Metaverse 3"
-  symbol: string;
-   // required, ex. "MOCHI"
-  icon: string|null; 
-  // Data URL
-  base_uri: string|null;
-  // Centralized gateway known to have reliable access to decentralized storage assets referenced by `reference` or `media` URLs
-  reference: string|null; 
-  // URL to a JSON file with more info
-  reference_hash: string|null; 
-  // Base64-encoded sha256 hash of JSON from reference field. Required if `reference` is included.
+export class NFTContract {
   owner_id: AccountId;
   token_id: number;
-  owner_by_id: LookupMap<any>;
-  token_by_id: LookupMap<any>;
+  owner_by_id: LookupMap<string>;
+  token_by_id: LookupMap<Token>;
+  tokenMetadataById: UnorderedMap<TokenMetadata>;
+  metadata: ContractMetadata;
+
   constructor() {
     this.token_id = 0;
     this.owner_id = "";
-    this.spec = "";
-    this.name = "";
-    this.symbol = "";
-    this.icon = "";
-    this.base_uri = "";
-    this.reference = "";
-    this.reference_hash = "";
     this.owner_by_id = new LookupMap("");
     this.token_by_id = new LookupMap("");
+    this.tokenMetadataById = new UnorderedMap("");
+    this.metadata = {"name": "", "spec": "", "symbol": ""};
   }
 
   @initialize({})
-  init({ owner_id, prefix }: { owner_id: AccountId; prefix: string }) {
+  init({ 
+    owner_id,  
+    metadata = {
+    spec: "nft-1.0.0",
+    name: "Phat Luu NFT Contract",
+    symbol: "VBI"
+}  }: { owner_id: AccountId, metadata: ContractMetadata }) {
     this.token_id = 0;
     this.owner_id = owner_id;
-    this.spec = "1.0.0";
-    this.name = "Homework PhatLuu";
-    this.symbol = "VBI";
-    this.icon = "./icon/ape.svg";
-    this.base_uri = "";
-    this.reference = ""
-    this.reference_hash = "";
-    this.owner_by_id = new LookupMap("owner");
-    this.token_by_id = new LookupMap("token");
+    this.owner_by_id = new LookupMap("ownerById");
+    this.token_by_id = new LookupMap("tokenById");
+    this.tokenMetadataById = new UnorderedMap("tokenMetadataById");
+    this.metadata = metadata;
   }
 
-  @call({}) // token_id = 0
-  mint_nft({ 
-    token_owner_id,
-    title, 
-    description, 
-    media,
-    media_hash,
+  // @call({}) // token_id = 0
+  // mint_nft({ 
+  //   token_owner_id,
+  //   title, 
+  //   description, 
+  //   media,
+  // }) {
+  //   this.owner_by_id.set(this.token_id.toString(), token_owner_id); 
+  //   //{tokenId = 0, 'dangquangvurust.testnet'}
 
+  //   let token = new Token(
+  //     this.token_id,
+  //     token_owner_id,
+  //     title,
+  //     description,
+  //     media
+  //   );
 
-  }) {
-    this.owner_by_id.set(this.token_id.toString(), token_owner_id); 
-    //{tokenId = 0, 'dangquangvurust.testnet'}
+  //   this.token_by_id.set(this.token_id.toString(), token);
+  //   this.token_id++;
+  //   return token;
+  // }
 
-    let token = new Token(
-      this.token_id,
-      token_owner_id,
-      title,
-      description,
-      media_uri,
-    );
-
-    this.token_by_id.set(this.token_id.toString(), token);
-
-    this.token_id++;
-
-    return token;
+  @call({})
+  nft_transfer({ receiver_id, token_id } : {receiver_id: string; token_id: string}) {
+    
   }
+
 
   @view({})
   get_token_by_id({ token_id }: { token_id: number }) {
