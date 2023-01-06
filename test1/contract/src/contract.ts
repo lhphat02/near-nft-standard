@@ -115,7 +115,7 @@ class Token {
 
 //Token's information on view method
 class JsonToken {
-  token_id: number;
+  token_id: string;
   owner_id: AccountId;
   metadata: TokenMetadata;
 
@@ -124,7 +124,7 @@ class JsonToken {
     ownerId,
     metadata,
   }: {
-    tokenId: number;
+    tokenId: string;
     ownerId: AccountId;
     metadata: TokenMetadata;
   }) {
@@ -179,7 +179,7 @@ export class NFTContract {
     this.metadata = metadata;
   }
 
-  //Mint NFT function
+  //Mint NFT
   @call({})
   mint_nft({
     token_owner_id,
@@ -199,6 +199,7 @@ export class NFTContract {
     this.token_id++;
   }
 
+  //Transfer NFT
   @call({})
   nft_transfer({
     receiver_id,
@@ -208,22 +209,13 @@ export class NFTContract {
     token_id: string;
   }) {}
 
+  //Get total count of existing tokens
   @view({})
-  get_token_by_id({ token_id }: { token_id: number }) {
-    let token = this.token_by_id.get(token_id.toString());
-
-    if (token === null) {
-      return null;
-    }
-
-    return token;
-  }
-
-  @view({})
-  get_supply_tokens() {
+  get_total_supply() {
     return this.token_id;
   }
 
+  //Get all existing tokens
   @view({})
   get_all_tokens({ start, max }: { start?: number; max?: number }) {
     var all_tokens = [];
@@ -235,8 +227,44 @@ export class NFTContract {
     return all_tokens;
   }
 
+  //Get all owned tokens of a specific account
   @view({})
-  contract_metadata(): ContractMetadata {
+  get_account_tokens({
+    account,
+    start,
+    max,
+  }: {
+    account: AccountId;
+    start?: number;
+    max?: number;
+  }) {
+    var all_tokens = [];
+
+    for (var i = 0; i < this.token_id; i++) {
+      all_tokens.push(this.token_by_id.get(i.toString()));
+    }
+
+    return all_tokens;
+  }
+
+  //Get a token's detail via token Id
+  @view({})
+  get_nft_detail({ fetchTokenId }: { fetchTokenId: string }) {
+    let token = this.token_by_id.get(fetchTokenId) as Token;
+    assert(token == null, 'Fetched token does not exist !');
+    let metadata = this.tokenMetadataById.get(fetchTokenId) as TokenMetadata;
+
+    let jsonToken = new JsonToken({
+      tokenId: fetchTokenId,
+      ownerId: token.owner_id,
+      metadata: metadata,
+    });
+
+    return jsonToken;
+  }
+
+  @view({})
+  get_contract_metadata(): ContractMetadata {
     return this.metadata;
   }
 }
