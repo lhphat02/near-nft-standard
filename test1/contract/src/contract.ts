@@ -182,7 +182,7 @@ export class NFTContract {
 
   //Mint NFT
   @call({})
-  mint_nft({
+  nft_mint({
     token_owner_id,
     metadata,
   }: {
@@ -205,10 +205,51 @@ export class NFTContract {
   nft_transfer({
     receiver_id,
     token_id,
+    approval_id,
+    memo,
   }: {
-    receiver_id: string;
-    token_id: string;
-  }) {}
+    receiver_id: AccountId;
+    token_id: number;
+    approval_id: number;
+    memo: string;
+  }) {
+    assert(
+      near.attachedDeposit().toString() === '1',
+      'Requires deposit of 1 yoctoⓃ for security purposes'
+    );
+
+    let msgSender: AccountId = near.predecessorAccountId.toString();
+
+    let token = this.token_by_id.get(token_id.toString()) as Token;
+    if (token == null) {
+      near.panicUtf8('Token not found !');
+    }
+
+    //Make sure if the sender doesn't equal the owner
+    assert(token.owner_id === msgSender, 'Token should be owned by the sender');
+
+    //Make sure that the sender isn't sending the token to themselves
+    assert(
+      token.owner_id != receiver_id,
+      'The token owner and the receiver should be different'
+    );
+
+    //Transfer ownership
+    this.token_by_id.get(token_id.toString()).owner_id = receiver_id;
+
+    //Create a new token struct
+    let newToken = new Token(token_id, receiver_id);
+
+    //Insert new token into the token_by_id, replacing the old entry
+    this.token_by_id.set(token_id.toString(), newToken);
+
+    //Log memo
+    if (memo != null) {
+      near.log(`Memo: ${memo}`);
+    }
+
+    return token;
+  }
 
   //Get total count of existing tokens
   @view({})
@@ -218,8 +259,16 @@ export class NFTContract {
 
   //Get total count of existing tokens of an account
   @view({})
-  get_owner_total_supply() {
-    return this.token_id;
+  get_owner_total_supply({ account }: { account: AccountId }): number {
+    let tokenCount: number = 0;
+
+    for (let i = 0; i < this.token_id; i++) {
+      if (this.token_by_id.get(i.toString()).owner_id === account) {
+        tokenCount++;
+      }
+    }
+
+    return tokenCount;
   }
 
   //Get all existing tokens
