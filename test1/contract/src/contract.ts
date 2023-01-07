@@ -181,7 +181,7 @@ export class NFTContract {
   }
 
   //Mint NFT
-  @call({})
+  @call({ payableFunction: true })
   nft_mint({
     token_owner_id,
     metadata,
@@ -320,7 +320,7 @@ export class NFTContract {
   get_nft_detail({ fetchTokenId }: { fetchTokenId: string }) {
     let token = this.token_by_id.get(fetchTokenId) as Token;
 
-    assert(token == null, 'Fetched token does not exist !');
+    assert(token !== null, 'Fetched token does not exist !');
 
     let metadata = this.tokenMetadataById.get(fetchTokenId) as TokenMetadata;
 
