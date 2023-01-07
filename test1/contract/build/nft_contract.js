@@ -1111,7 +1111,11 @@ class JsonToken {
 ////////////////  MAIN CONTRACT  ////////////////
 let NFTContract = (_dec = NearBindgen({
   requireInit: true
-}), _dec2 = initialize(), _dec3 = call({}), _dec4 = call({}), _dec5 = view(), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec9 = view(), _dec10 = view(), _dec(_class = (_class2 = class NFTContract {
+}), _dec2 = initialize(), _dec3 = call({
+  payableFunction: true
+}), _dec4 = call({}), _dec5 = view(), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec9 = view(), _dec10 = view(), _dec(_class = (_class2 = class NFTContract {
+  //Not in used yet
+
   constructor() {
     this.token_id = 0;
     this.owner_id = '';
@@ -1149,9 +1153,17 @@ let NFTContract = (_dec = NearBindgen({
     metadata
   }) {
     this.tokens_per_owner.set(this.token_id.toString(), token_owner_id);
+
+    //Create new token struct for NFT
     let token = new Token(this.token_id, token_owner_id);
+
+    //Map token with token id
     this.token_by_id.set(this.token_id.toString(), token);
+
+    //Map token metadata with token id
     this.tokenMetadataById.set(this.token_id.toString(), metadata);
+
+    //Fetch token id
     this.token_id++;
   }
 
@@ -1162,9 +1174,14 @@ let NFTContract = (_dec = NearBindgen({
     approval_id,
     memo
   }) {
-    assert(attachedDeposit().toString() === '1', 'Requires deposit of 1 yoctoⓃ for security purposes');
+    //Caller of the method must attach a deposit of 1 yoctoⓃ for security purposes
+    assert(attachedDeposit().toString() === '1', 'Requires attach an exactly deposit of 1 yoctoⓃ');
+
+    //Get function caller
     let msgSender = predecessorAccountId.toString();
     let token = this.token_by_id.get(token_id.toString());
+
+    //Panic if token does not exist
     if (token == null) {
       panicUtf8('Token not found !');
     }
@@ -1201,6 +1218,8 @@ let NFTContract = (_dec = NearBindgen({
     account
   }) {
     let tokenCount = 0;
+
+    //Loop through all tokens existing in contract to search account's owned tokens
     for (let i = 0; i < this.token_id; i++) {
       if (this.token_by_id.get(i.toString()).owner_id === account) {
         tokenCount++;
@@ -1215,6 +1234,8 @@ let NFTContract = (_dec = NearBindgen({
     max
   }) {
     var all_tokens = [];
+
+    //Paginate tokens
     let start = from ? from : 0;
     let limit = max ? max : this.token_id;
     let keys = this.tokenMetadataById.toArray();
@@ -1249,7 +1270,7 @@ let NFTContract = (_dec = NearBindgen({
     fetchTokenId
   }) {
     let token = this.token_by_id.get(fetchTokenId);
-    assert(token == null, 'Fetched token does not exist !');
+    assert(token !== null, 'Fetched token does not exist !');
     let metadata = this.tokenMetadataById.get(fetchTokenId);
     let jsonToken = new JsonToken({
       tokenId: fetchTokenId,
