@@ -205,7 +205,7 @@ export class NFTContract {
   }
 
   //Transfer NFT
-  @call({})
+  @call({ payableFunction: true })
   nft_transfer({
     receiver_id,
     token_id,
@@ -224,7 +224,7 @@ export class NFTContract {
     );
 
     //Get function caller
-    let msgSender: AccountId = near.predecessorAccountId.toString();
+    let msgSender: AccountId = near.predecessorAccountId();
 
     let token = this.token_by_id.get(token_id.toString()) as Token;
 
@@ -233,8 +233,11 @@ export class NFTContract {
       near.panicUtf8('Token not found !');
     }
 
+    near.log(msgSender);
+    near.log(this.owner_id);
+
     //Make sure if the sender doesn't equal the owner
-    assert(token.owner_id === msgSender, 'Token should be owned by the sender');
+    assert(token.owner_id == msgSender, 'Token should be owned by the sender');
 
     //Make sure that the sender isn't sending the token to themselves
     assert(
@@ -256,7 +259,7 @@ export class NFTContract {
       near.log(`Memo: ${memo}`);
     }
 
-    return token;
+    return newToken;
   }
 
   //Get total count of existing tokens
