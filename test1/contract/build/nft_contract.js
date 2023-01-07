@@ -1113,7 +1113,9 @@ let NFTContract = (_dec = NearBindgen({
   requireInit: true
 }), _dec2 = initialize(), _dec3 = call({
   payableFunction: true
-}), _dec4 = call({}), _dec5 = view(), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec9 = view(), _dec10 = view(), _dec(_class = (_class2 = class NFTContract {
+}), _dec4 = call({
+  payableFunction: true
+}), _dec5 = view(), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec9 = view(), _dec10 = view(), _dec(_class = (_class2 = class NFTContract {
   //Not in used yet
 
   constructor() {
@@ -1178,16 +1180,18 @@ let NFTContract = (_dec = NearBindgen({
     assert(attachedDeposit().toString() === '1', 'Requires attach an exactly deposit of 1 yoctoⓃ');
 
     //Get function caller
-    let msgSender = predecessorAccountId.toString();
+    let msgSender = predecessorAccountId();
     let token = this.token_by_id.get(token_id.toString());
 
     //Panic if token does not exist
     if (token == null) {
       panicUtf8('Token not found !');
     }
+    log(msgSender);
+    log(this.owner_id);
 
     //Make sure if the sender doesn't equal the owner
-    assert(token.owner_id === msgSender, 'Token should be owned by the sender');
+    assert(token.owner_id == msgSender, 'Token should be owned by the sender');
 
     //Make sure that the sender isn't sending the token to themselves
     assert(token.owner_id != receiver_id, 'The token owner and the receiver should be different');
@@ -1205,7 +1209,7 @@ let NFTContract = (_dec = NearBindgen({
     if (memo != null) {
       log(`Memo: ${memo}`);
     }
-    return token;
+    return newToken;
   }
 
   //Get total count of existing tokens
