@@ -1,14 +1,3 @@
-
-# Near NFT's Standard
-
-VBI JS SmartContract Course's assignment
-
-
-## Instructor
-
-- [@vugomars](https://github.com/vugomars)
-
-
 ## Documentation
 
 - [near-sdk-js](https://github.com/near/near-sdk-js/blob/develop/examples/src/standard-nft/my-nft.ts)
