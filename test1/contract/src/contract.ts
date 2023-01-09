@@ -108,9 +108,24 @@ class TokenMetadata {
 class Token {
   token_id: number;
   owner_id: AccountId;
+  approved_account_ids: { [accountId: string]: number };
+  next_approval_id: number;
 
-  constructor(token_id: number, owner_id: AccountId) {
-    (this.token_id = token_id), (this.owner_id = owner_id);
+  constructor({
+    token_id,
+    owner_id,
+    approved_account_ids,
+    next_approval_id,
+  }: {
+    token_id: number;
+    owner_id: AccountId;
+    approved_account_ids: { [accountId: string]: number };
+    next_approval_id: number;
+  }) {
+    this.token_id = token_id;
+    this.owner_id = owner_id;
+    this.approved_account_ids = approved_account_ids; //list of approved account IDs that have access to transfer the token. This maps an account ID to an approval ID
+    this.next_approval_id = next_approval_id; //the next approval ID to give out.
   }
 }
 
@@ -119,22 +134,23 @@ class JsonToken {
   token_id: string;
   owner_id: AccountId;
   metadata: TokenMetadata;
+  approved_account_ids: { [accountId: string]: number };
 
   constructor({
-    tokenId,
-    ownerId,
+    token_id,
+    owner_id,
     metadata,
+    approved_account_ids,
   }: {
-    tokenId: string;
-    ownerId: AccountId;
+    token_id: string;
+    owner_id: AccountId;
     metadata: TokenMetadata;
+    approved_account_ids: { [accountId: string]: number };
   }) {
-    //token ID
-    (this.token_id = tokenId),
-      //owner of the token
-      (this.owner_id = ownerId),
-      //token metadata
-      (this.metadata = metadata);
+    this.token_id = token_id;
+    this.owner_id = owner_id;
+    this.metadata = metadata;
+    this.approved_account_ids = approved_account_ids;
   }
 }
 
@@ -145,7 +161,7 @@ export class NFTContract {
   token_id: number;
   tokens_per_owner: LookupMap<string>; //Not in used yet
   token_by_id: LookupMap<Token>;
-  tokenMetadataById: UnorderedMap<TokenMetadata>;
+  token_metadata_by_id: UnorderedMap<TokenMetadata>;
   metadata: ContractMetadata;
 
   constructor() {
@@ -153,7 +169,7 @@ export class NFTContract {
     this.owner_id = '';
     this.tokens_per_owner = new LookupMap('');
     this.token_by_id = new LookupMap('');
-    this.tokenMetadataById = new UnorderedMap('');
+    this.token_metadata_by_id = new UnorderedMap('');
     this.metadata = { name: '', spec: '', symbol: '' };
   }
 
@@ -176,7 +192,7 @@ export class NFTContract {
     this.owner_id = owner_id;
     this.tokens_per_owner = new LookupMap('tokensPerOwner');
     this.token_by_id = new LookupMap('tokenById');
-    this.tokenMetadataById = new UnorderedMap('tokenMetadataById');
+    this.token_metadata_by_id = new UnorderedMap('token_metadata_by_id');
     this.metadata = metadata;
   }
 
@@ -192,13 +208,22 @@ export class NFTContract {
     this.tokens_per_owner.set(this.token_id.toString(), token_owner_id);
 
     //Create new token struct for NFT
-    let token = new Token(this.token_id, token_owner_id);
+    let token = new Token({
+      //Set token id
+      token_id: this.token_id,
+      //Set owner id
+      owner_id: token_owner_id,
+      //Set the approved account IDs to the default value (an empty map)
+      approved_account_ids: {},
+      //Initialize next approval ID = 0
+      next_approval_id: 0,
+    });
 
     //Map token with token id
     this.token_by_id.set(this.token_id.toString(), token);
 
     //Map token metadata with token id
-    this.tokenMetadataById.set(this.token_id.toString(), metadata);
+    this.token_metadata_by_id.set(this.token_id.toString(), metadata);
 
     //Fetch token id
     this.token_id++;
@@ -245,11 +270,25 @@ export class NFTContract {
       'The token owner and the receiver should be different'
     );
 
+    //get the next approval ID if we need a new approval
+    let approvalId = token.next_approval_id;
+
+    //check if the account has been approved already for this token
+    token.approved_account_ids[receiver_id] = approvalId;
+
+    //increment the token's next approval ID by 1
+    token.next_approval_id += 1;
+
     //Transfer ownership
     this.token_by_id.get(token_id.toString()).owner_id = receiver_id;
 
     //Create a new token struct
-    let newToken = new Token(token_id, receiver_id);
+    let newToken = new Token({
+      token_id: token_id,
+      owner_id: receiver_id,
+      approved_account_ids: {},
+      next_approval_id: 0,
+    });
 
     //Insert new token into the token_by_id, replacing the old entry
     this.token_by_id.set(token_id.toString(), newToken);
@@ -291,7 +330,7 @@ export class NFTContract {
     //Paginate tokens
     let start = from ? from : 0;
     let limit = max ? max : this.token_id;
-    let keys = this.tokenMetadataById.toArray();
+    let keys = this.token_metadata_by_id.toArray();
 
     for (let i = start; i < keys.length && i < start + limit; i++) {
       let jsonToken = this.get_nft_detail({ fetchTokenId: keys[i][0] });
@@ -306,7 +345,7 @@ export class NFTContract {
   get_account_tokens({ account }: { account: AccountId }): JsonToken[] {
     var account_tokens = [];
 
-    let keys = this.tokenMetadataById.toArray();
+    let keys = this.token_metadata_by_id.toArray();
 
     for (let i = 0; i < this.token_id; i++) {
       if (this.token_by_id.get(i.toString()).owner_id === account) {
@@ -325,12 +364,13 @@ export class NFTContract {
 
     assert(token !== null, 'Fetched token does not exist !');
 
-    let metadata = this.tokenMetadataById.get(fetchTokenId) as TokenMetadata;
+    let metadata = this.token_metadata_by_id.get(fetchTokenId) as TokenMetadata;
 
     let jsonToken = new JsonToken({
-      tokenId: fetchTokenId,
-      ownerId: token.owner_id,
+      token_id: fetchTokenId,
+      owner_id: token.owner_id,
       metadata: metadata,
+      approved_account_ids: {},
     });
 
     return jsonToken;
